@@ -23,6 +23,25 @@ DB_NAME = "ATMdatabase.db"
 ADMIN_USERNAME = "admin"
 ADMIN_PIN = "1234"
 
+def migrate_database():
+    """Migrate existing database to include balance column if it doesn't exist."""
+    con = sqlite3.connect(DB_NAME)
+    cur = con.cursor()
+    try:
+        # Check if balance column exists
+        cur.execute("PRAGMA table_info(Registration_data)")
+        columns = [column[1] for column in cur.fetchall()]
+        
+        if "balance" not in columns:
+            # Add balance column to existing table
+            cur.execute("ALTER TABLE Registration_data ADD COLUMN balance real DEFAULT 0.0")
+            con.commit()
+            print("Migration: Added 'balance' column to Registration_data table")
+    except sqlite3.OperationalError as e:
+        print(f"Migration error: {e}")
+    finally:
+        con.close()
+
 def create_registration_table():
     con = sqlite3.connect(DB_NAME)
     cur = con.cursor()
@@ -40,6 +59,7 @@ def create_registration_table():
     )""")
     con.commit()
     con.close()
+    migrate_database()  # Run migration after creating/checking table
 
 # ####GUI
 root = Tk()
