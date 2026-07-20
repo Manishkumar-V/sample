@@ -23,8 +23,8 @@ DB_NAME = "ATMdatabase.db"
 ADMIN_USERNAME = "admin"
 ADMIN_PIN = "1234"
 
-def migrate_database():
-    """Migrate existing database to include balance column if it doesn't exist."""
+def migrate_registration_table():
+    """Migrate Registration_data table to include balance column if it doesn't exist."""
     con = sqlite3.connect(DB_NAME)
     cur = con.cursor()
     try:
@@ -38,7 +38,26 @@ def migrate_database():
             con.commit()
             print("Migration: Added 'balance' column to Registration_data table")
     except sqlite3.OperationalError as e:
-        print(f"Migration error: {e}")
+        print(f"Migration error for Registration_data: {e}")
+    finally:
+        con.close()
+
+def migrate_transactions_table():
+    """Migrate Transactions table to include reason column if it doesn't exist."""
+    con = sqlite3.connect(DB_NAME)
+    cur = con.cursor()
+    try:
+        # Check if reason column exists
+        cur.execute("PRAGMA table_info(Transactions)")
+        columns = [column[1] for column in cur.fetchall()]
+        
+        if "reason" not in columns:
+            # Add reason column to existing table
+            cur.execute("ALTER TABLE Transactions ADD COLUMN reason text DEFAULT ''")
+            con.commit()
+            print("Migration: Added 'reason' column to Transactions table")
+    except sqlite3.OperationalError as e:
+        print(f"Migration error for Transactions: {e}")
     finally:
         con.close()
 
@@ -59,7 +78,23 @@ def create_registration_table():
     )""")
     con.commit()
     con.close()
-    migrate_database()  # Run migration after creating/checking table
+    migrate_registration_table()  # Run migration after creating/checking table
+
+def create_transactions_table():
+    con = sqlite3.connect(DB_NAME)
+    cur = con.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Transactions(
+        username text,
+        ttype text,
+        amount real,
+        reason text,
+        note text,
+        txn_date text
+    )""")
+    con.commit()
+    con.close()
+    migrate_transactions_table()  # Run migration after creating/checking table
 
 # ####GUI
 root = Tk()
@@ -135,21 +170,6 @@ def get_all_customers():
         return []
     finally:
         con.close()
-
-def create_transactions_table():
-    con = sqlite3.connect(DB_NAME)
-    cur = con.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS Transactions(
-        username text,
-        ttype text,
-        amount real,
-        reason text,
-        note text,
-        txn_date text
-    )""")
-    con.commit()
-    con.close()
 
 def search_customers(term):
     """Matches on username, account number, or a partial (case-insensitive) name."""
@@ -239,9 +259,9 @@ def get_transactions(username=None):
     cur = con.cursor()
     try:
         if username:
-            cur.execute("SELECT txn_date, username, ttype, amount, reason, note FROM Transactions WHERE username=? ORDER BY txn_date DESC", (username,))
+            cur.execute("SELECT txn_date, username, ttype, amount, COALESCE(reason, ''), COALESCE(note, '') FROM Transactions WHERE username=? ORDER BY txn_date DESC", (username,))
         else:
-            cur.execute("SELECT txn_date, username, ttype, amount, reason, note FROM Transactions ORDER BY txn_date DESC")
+            cur.execute("SELECT txn_date, username, ttype, amount, COALESCE(reason, ''), COALESCE(note, '') FROM Transactions ORDER BY txn_date DESC")
         return cur.fetchall()
     except sqlite3.OperationalError:
         return []
@@ -255,11 +275,15 @@ def add_transaction(username, ttype, amount, reason="", note=""):
         cur.execute("INSERT INTO Transactions VALUES (?,?,?,?,?,?)",
                      (username, ttype, amount, reason, note, date.today().strftime("%d/%m/%Y")))
         con.commit()
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as e:
+        print(f"Error inserting transaction: {e}")
         create_transactions_table()
-        cur.execute("INSERT INTO Transactions VALUES (?,?,?,?,?,?)",
-                     (username, ttype, amount, reason, note, date.today().strftime("%d/%m/%Y")))
-        con.commit()
+        try:
+            cur.execute("INSERT INTO Transactions VALUES (?,?,?,?,?,?)",
+                         (username, ttype, amount, reason, note, date.today().strftime("%d/%m/%Y")))
+            con.commit()
+        except sqlite3.OperationalError as e2:
+            print(f"Failed to insert transaction after migration: {e2}")
     finally:
         con.close()
 
